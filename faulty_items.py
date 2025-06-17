@@ -51,7 +51,7 @@ for range in ranges:
         if not is_within:
             faulty_items.append(entry["id"])
 
-    print(f"{range} copmleted")
+    print(f"{range} completed")
 
 with open("faulty_items.csv", "w", newline="") as f:
     writer = csv.writer(f)
