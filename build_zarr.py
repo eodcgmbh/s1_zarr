@@ -5,7 +5,7 @@ import xarray as xr
 from numcodecs import Blosc
 import rioxarray
 import pandas as pd
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 #os.environ["ZARR_V3_EXPERIMENTAL_API"] = "1"
 
 tile = "EU020M_E051N015T3"
@@ -43,8 +43,8 @@ mapping_x = np.arange(5100010, 5400000, 20)
 mapping_y = np.arange(1799990, 1500000, -20)
 mapping_t = np.arange(0,5000,1)
 
-shape = (mapping_t.shape[0],mapping_x.shape[0],mapping_y.shape[0])
-chunk_shape = (20,100,100)
+shape = (mapping_t.shape[0],mapping_y.shape[0],mapping_x.shape[0])
+chunk_shape = (20,500,500)
 shard_shape = (20,3000,3000)
 compressors_array = zarr.codecs.BloscCodec()
 x_shape = mapping_x.shape #subset["x"].shape
@@ -72,8 +72,8 @@ vh_array = eu.create_array(name="VH",
 
 sensing_date = eu.create_array(name="sensing_date",
                 shape=shape,
-                #shards=(180,15000,150000),
-                chunks=shard_shape,
+                shards=shard_shape,
+                chunks=chunk_shape,
                 dtype="int64",
                 fill_value=-9999,
                 dimension_names=["time", "y", "x"],
@@ -178,3 +178,5 @@ for item in item_list:
     print(datetime.now(timezone.utc)-start_time," / ",datetime.now(timezone.utc)-tot_start)
     print(f"{i}/{len(item_list)}\n--------------------------------")
     i+=1
+
+print(f"Total time reading data: {sum(tot_reading_data, timedelta(0))}\nTotal time processing data: {sum(tot_processing_data, timedelta(0))}\nTotal time writing data: {sum(tot_data, timedelta(0))}\nTotal time writing metadata: {sum(tot_sensing, timedelta(0))}")
