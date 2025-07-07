@@ -52,19 +52,41 @@ def group_dates(item_list):
 
 def read_and_merge_items(items, pols):
     first = True
+    if type(pols)==list:
+        datasets = []
+        for pol in pols:
+            for item in items:
+                ds = load_data(item, pol)
+                
+                if first:
+                    data = ds
+                    first = False
+                
+                else:
+                    data = xr.where(data==-9999, ds, data, keep_attrs=True)
 
-    for item in items:
-        ds = load_data(item, pols)
-        
-        if first:
-            data = ds
-            first = False
-        
-        else:
-            data = xr.where(data==-9999, ds, data, keep_attrs=True)
+            if "time" in data.dims:      
+                datasets.append(data)
+            else:
+                datasets.append(data.expand_dims(time=pd.to_datetime([item.properties["datetime"]]).tz_convert(None)))
 
-        data = data.squeeze()
-    return data
+            first=True
+        data = xr.merge(datasets)
+
+    else:
+        for item in items:
+            ds = load_data(item, pols)
+            
+            if first:
+                data = ds
+                first = False
+            
+            else:
+                data = xr.where(data==-9999, ds, data, keep_attrs=True)
+
+        data = data.to_dataset(name=pols)
+
+    return data.squeeze()
 
 def clip_data(dataset, fillvalue=-9999, multiple_vars = False):
     if len(list(dataset.data_vars)) > 1 and not multiple_vars:
@@ -75,22 +97,160 @@ def clip_data(dataset, fillvalue=-9999, multiple_vars = False):
     data = dataset.isel(x=slice(xmin, xmax), y=slice(ymin,ymax))
     return data
 
-# def merge_data(items):
-#     first = True
+def read_data(grouped_data):
+    merged = []
+    #metadata_items = ["sat:relative_orbit", "time"]
+    for group in grouped_data:
+        d = group[1]
+        clean = []
+        first_band=True
+        for b in d.band.values:
+            d_band = d.sel(band=b)
+            first=True
+            if len(d_band.time.values)==1:
+                d_time = d_band.sel(time=time)
+            
+            else:
+                for time in d_band.time.values:
+
+                    datetime_origin = np.datetime64("2014-10-01T00:00:00")
+                    datetime = d_band.sel(time=time).time.values.astype("datetime64[s]")
+                    datetime_delta = (datetime - datetime_origin).astype("int64")
+
+                    if first:
+                        d_time = d_band.sel(time=time)
+                        first=False
+
+                        if first_band:
+                            datetime_arr = d_time.astype("int64")
+                            datetime_arr = xr.where(datetime_arr!=-9999, datetime_delta, datetime_arr, keep_attrs=True)
+
+                    else:
+                        d_time2 = d_band.sel(time=time)
+                        
+                        if first_band:
+                            datetime_arr = xr.where(datetime_arr!=-9999, datetime_delta, datetime_arr, keep_attrs=True)
+
+                        d_time = xr.where(d_time==-9999, d_time2, d_time, keep_attrs=True)
+                        
+            if "time" in d_time.coords:
+                d_time = d_time.drop_vars("time")         
+            
+            clean.append(d_time)
+            
+            if first_band:
+                if "time" in datetime_arr.coords:
+                    datetime_arr = datetime_arr.drop_vars("time") 
+                clean.append(datetime_arr.assign_coords(band="datetime"))
+                first_band=False
+
+        
+        merged.append(xr.concat(clean, dim="band"))
+
+    new_data = xr.concat(merged, dim="time_days")
+    return new_data
+
+def fill_data(new_data, time_start, time_end, freq):
+    full_range = pd.date_range(time_start, time_end, freq=freq).values.astype("datetime64[s]")
+
+    # 2. Create dummy array with desired time_days
+    template = xr.DataArray(
+        np.full((len(full_range),) + new_data.shape[1:], fill_value=-9999, dtype=new_data.dtype),
+        dims=("time_days", "band", "y", "x"),
+        coords={
+            "time_days": full_range,
+            "band": new_data.coords["band"],
+            "y": new_data.coords["y"],
+            "x": new_data.coords["x"],
+        },
+        attrs=new_data.attrs,
+    )
+
+    # 3. Use `combine_first` to fill missing time entries with -9999
+    data_filled = new_data.combine_first(template)
+    return data_filled
+
+def make_group_INCA(group, name, shape, shards, chunks, x_shape, y_shape, time_shape, x_extent, y_extent, time_extent, scale_factor, dtype ="int16", fill_value=-999, overwrite=True):
+    data_array = group.create_array(name=name,
+                        shape=shape,
+                        shards=shards,
+                        chunks=chunks,
+                        compressors = zarr.codecs.BloscCodec(),
+                        dtype=dtype,
+                        fill_value=fill_value,
+                        dimension_names=["time", "y", "x"],
+                        config={"write_empty_chunks":False},
+                        attributes={"_FillValue": fill_value,
+                                    "scale_factor": scale_factor},
+                        overwrite=overwrite)
+
+    x_array = group.create_array(name="x",
+                    shape=x_shape,
+                    chunks=x_shape,
+                    dtype="float64",
+                    dimension_names=["x"],
+                    attributes={"_FillValue": "AAAAAAAA+H8="}, #fill value is NaN
+                    overwrite=overwrite)
+
+    y_array = group.create_array(name="y",
+                    shape=y_shape,
+                    chunks=y_shape,
+                    dtype="float64",
+                    dimension_names=["y"],
+                    attributes={"_FillValue": "AAAAAAAA+H8="}, #fill value is NaN
+                    overwrite=overwrite)
+
+    time_array = group.create_array(name="time",
+                    shape=time_shape,
+                    chunks=time_shape,
+                    dtype="int64",
+                    dimension_names=["time"],
+                    attributes={"units": "hours since 2011-03-15 00:00:00",
+                                "calendar": "proleptic_gregorian"},
+                    overwrite=overwrite)
     
+    x_array[:] = x_extent
+    y_array[:] = y_extent
+    time_array[:] = time_extent
 
-#     for item in items:
-#         ds = bzs.load_data(item, "VH").values
-        
-#         if first:
-#             data = ds
-#             dt = np.datetime64(item.properties["datetime"], 's')
-#             coords = item.properties["proj:bbox"]
-#             x_coords = [coords[0], coords[2]]
-#             y_coords = [coords[1], coords[3]]
+def make_group_S1(group, name, shape, shards, chunks, x_shape, y_shape, time_shape, x_extent, y_extent, time_extent, scale_factor=0.1, dtype ="int16", fill_value=-9999, overwrite=True):
+    data_array = group.create_array(name=name,
+                        shape=shape,
+                        shards=shards,
+                        chunks=chunks,
+                        compressors = zarr.codecs.BloscCodec(),
+                        dtype=dtype,
+                        fill_value=fill_value,
+                        dimension_names=["time", "y", "x"],
+                        config={"write_empty_chunks":False},
+                        attributes={"_FillValue": fill_value,
+                                    "scale_factor": scale_factor},
+                        overwrite=overwrite)
 
-#             first=False
-        
-#         else:
-#             data = np.where(ds==-9999, data, ds)
-#     return np.squeeze(data), dt, x_coords, y_coords
+    x_array = group.create_array(name="x",
+                    shape=x_shape,
+                    chunks=x_shape,
+                    dtype="float64",
+                    dimension_names=["x"],
+                    attributes={"_FillValue": "AAAAAAAA+H8="}, #fill value is NaN
+                    overwrite=overwrite)
+
+    y_array = group.create_array(name="y",
+                    shape=y_shape,
+                    chunks=y_shape,
+                    dtype="float64",
+                    dimension_names=["y"],
+                    attributes={"_FillValue": "AAAAAAAA+H8="}, #fill value is NaN
+                    overwrite=overwrite)
+
+    time_array = group.create_array(name="time",
+                    shape=time_shape,
+                    dtype="int64",
+                    dimension_names=["time"],
+                    attributes={"units": "days since 2014-10-01",
+                                "calendar": "proleptic_gregorian"},
+                    overwrite=overwrite)
+    
+    x_array[:] = x_extent
+    y_array[:] = y_extent
+    time_array[:] = time_extent
