@@ -68,5 +68,5 @@ def main(variable):
         print(f"{file} written to zarr store. {i}/{len(filepaths)} complete💌")
 
 if __name__ == "__main__":
-    main("UU")
+    main("T2M")
     
