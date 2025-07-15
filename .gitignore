@@ -6,4 +6,3 @@
 *.txt
 *.env# pixi environments
 .pixi
-*.env
