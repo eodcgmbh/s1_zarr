@@ -1,0 +1,77 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: inca-processing-
+spec:
+  entrypoint: main
+  securityContext:
+    runAsUser: 74268
+    fsGroup: 71473
+  volumes:
+    - name: eodc-mount
+      persistentVolumeClaim:
+        claimName: eodc-nfs-claim
+
+  templates:
+    - name: main
+      steps:
+        - - name: inca-parallel
+            template: inca-pipeline
+            arguments:
+              parameters:
+                - name: var
+                  value: "{{item}}"
+            withParam: '["RR", "T2M", "GL", "RH2M", "P0", "UU", "VV", "TD2M"]'
+
+    - name: inca-pipeline
+      inputs:
+        parameters:
+          - name: var
+      steps:
+        - - name: download-data
+            template: download
+            arguments:
+              parameters:
+                - name: var
+                  value: "{{inputs.parameters.var}}"
+        - - name: process-data
+            template: process
+            arguments:
+              parameters:
+                - name: var
+                  value: "{{inputs.parameters.var}}"
+              artifacts:
+                - name: inca-file
+                  from: "{{steps.download-data.outputs.artifacts.inca-file}}"
+
+    - name: download
+      inputs:
+        parameters:
+          - name: var
+      container:
+        image: ghcr.io/oscipal/image_zarr:latest
+        imagePullPolicy: Always
+        command: ["python"]
+        args: ["inca_download.py", "{{inputs.parameters.var}}"]
+      outputs:
+        artifacts:
+          - name: inca-file
+            path: "/tmp/INCAL_HOURLY_{{inputs.parameters.var}}_202506.nc"
+            archive:
+              none: {}
+
+    - name: process
+      inputs:
+        parameters:
+          - name: var
+        artifacts:
+          - name: inca-file
+            path: "/tmp/INCAL_HOURLY_{{inputs.parameters.var}}_202506.nc"
+      container:
+        image: ghcr.io/oscipal/image_zarr:latest
+        imagePullPolicy: Always
+        command: ["python"]
+        args: ["inca_write.py", "{{inputs.parameters.var}}"]
+        volumeMounts:
+          - name: eodc-mount
+            mountPath: /eodc
