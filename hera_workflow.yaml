@@ -4,7 +4,7 @@ metadata:
   generateName: inca-zarr-
   namespace: inca
 spec:
-  entrypoint: run-workflow
+  entrypoint: parallel
   securityContext:
     runAsGroup: 71473
     runAsUser: 74268
@@ -14,22 +14,23 @@ spec:
       - arguments:
           parameters:
           - name: variable
-            value: '{{item}}'
+            value: '{{inputs.parameters.item}}'
         name: inca-download
         template: inca-download
-        withParam: '["RR"]'
       - arguments:
           artifacts:
           - from: '{{tasks.inca-download.outputs.artifacts.inca-file}}'
             name: inca-file
           parameters:
           - name: variable
-            value: '{{item}}'
+            value: '{{inputs.parameters.item}}'
         depends: inca-download
         name: inca-write
         template: inca-write
-        withParam: '["RR"]'
-    name: run-workflow
+    inputs:
+      parameters:
+      - name: item
+    name: pipeline
   - inputs:
       parameters:
       - name: variable
@@ -103,6 +104,15 @@ spec:
       volumeMounts:
       - mountPath: /eodc
         name: eodc-mount
+  - name: parallel
+    steps:
+    - - arguments:
+          parameters:
+          - name: item
+            value: '{{item}}'
+        name: parallel-pipelines
+        template: pipeline
+        withParam: '["RR", "T2M", "TD2M"]'
   volumes:
   - name: eodc-mount
     persistentVolumeClaim:
