@@ -21,14 +21,10 @@ spec:
     templates:
       - name: main
         steps:
-          - - name: compute-ym
-              template: compute-ym
           - - name: inca-parallel
               template: inca-pipeline
               arguments:
                 parameters:
-                  - name: ym
-                    value: "{{steps.compute-ym.outputs.parameters.result}}"
                   - name: var
                     value: "{{item}}"
               withParam: '["RR", "T2M", "GL", "RH2M", "P0", "UU", "VV", "TD2M"]'
@@ -92,18 +88,6 @@ spec:
           volumeMounts:
             - name: eodc-mount
               mountPath: /eodc
-
-      - name: compute-ym
-        script:
-          image: python:3.11
-          command: ["python"]
-          source: |
-            import datetime
-
-            ym = (datetime.date.today()-datetime.timedelta(days=8)).strftime("%Y%m")
-            
-            with open("/tmp/stdout", "w") as f:
-              f.write(ym)
 
         outputs:
           parameters:
