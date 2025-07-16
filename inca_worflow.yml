@@ -3,7 +3,7 @@ kind: CronWorkflow
 metadata:
   generateName: inca-processing-
 spec:
-  schedule: "0 6 * * *"
+  schedule: "* 4 * * *"
   concurrencyPolicy: "Allow"
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 10
@@ -21,10 +21,14 @@ spec:
     templates:
       - name: main
         steps:
+          - - name: compute-ym
+              template: compute-ym
           - - name: inca-parallel
               template: inca-pipeline
               arguments:
                 parameters:
+                  - name: ym
+                    value: "{{steps.compute-ym.outputs.parameters.result}}"
                   - name: var
                     value: "{{item}}"
               withParam: '["RR", "T2M", "GL", "RH2M", "P0", "UU", "VV", "TD2M"]'
@@ -68,7 +72,7 @@ spec:
         outputs:
           artifacts:
             - name: inca-file
-              path: "/tmp/INCAL_HOURLY_{{inputs.parameters.var}}_202506.nc"
+              path: "/tmp/INCAL_HOURLY_{{inputs.parameters.var}}_{{inputs.parameters.ym}}.nc"
               archive:
                 none: {}
 
@@ -79,7 +83,7 @@ spec:
             - name: ym
           artifacts:
             - name: inca-file
-              path: "/tmp/INCAL_HOURLY_{{inputs.parameters.var}}_202506.nc"
+              path: "/tmp/INCAL_HOURLY_{{inputs.parameters.var}}_{{inputs.parameters.ym}}.nc"
         container:
           image: ghcr.io/oscipal/image_zarr:latest
           imagePullPolicy: Always
@@ -95,17 +99,12 @@ spec:
           command: ["python"]
           source: |
             import datetime
-            from datetime import timedelta
 
-            today = datetime.date.today()
-            if today.day < 8:
-                first_day_this_month = today.replace(day=1)
-                last_month = first_day_this_month - timedelta(days=1)
-                ym = last_month.strftime("%Y%m")
-            else:
-                ym = today.strftime("%Y%m")
-              
-            print(ym)
+            ym = (datetime.date.today()-datetime.timedelta(days=8)).strftime("%Y%m")
+            
+            with open("/tmp/stdout", "w") as f:
+              f.write(ym)
+
         outputs:
           parameters:
             - name: result

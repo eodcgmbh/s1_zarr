@@ -4,5 +4,5 @@
 *.csv
 *.nc
 *.txt
-*.env# pixi environments
-.pixi
+*.env
+*.pixi
