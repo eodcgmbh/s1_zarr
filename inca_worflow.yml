@@ -33,7 +33,6 @@ spec:
         inputs:
           parameters:
             - name: var
-            - name: ym
         steps:
           - - name: download-data
               template: download
@@ -41,16 +40,12 @@ spec:
                 parameters:
                   - name: var
                     value: "{{inputs.parameters.var}}"
-                  - name: ym
-                    value: "{{inputs.parameters.ym}}"
           - - name: process-data
               template: process
               arguments:
                 parameters:
                   - name: var
                     value: "{{inputs.parameters.var}}"
-                  - name: ym
-                    value: "{{inputs.parameters.ym}}"
                 artifacts:
                   - name: inca-file
                     from: "{{steps.download-data.outputs.artifacts.inca-file}}"
