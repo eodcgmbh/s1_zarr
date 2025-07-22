@@ -4,7 +4,7 @@ metadata:
   generateName: inca-zarr-
   namespace: inca
 spec:
-  schedule: 51 10 * * *
+  schedule: '* 4 * * *'
   workflowSpec:
     entrypoint: workflow
     securityContext:

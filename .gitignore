@@ -6,3 +6,6 @@
 *.txt
 *.env
 *.pixi
+stac_errors.ipynb
+stac_errors.py
+testing.ipynb
