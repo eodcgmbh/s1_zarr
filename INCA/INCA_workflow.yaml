@@ -1,176 +1,178 @@
 apiVersion: argoproj.io/v1alpha1
-kind: Workflow
+kind: CronWorkflow
 metadata:
   generateName: inca-zarr-
   namespace: inca
 spec:
-  entrypoint: workflow
-  securityContext:
-    runAsGroup: 71473
-    runAsUser: 74268
-  templates:
-  - dag:
-      tasks:
-      - arguments:
-          parameters:
-          - name: param
-            value: '{{inputs.parameters.args}}'
-        name: inca-download
-        template: inca-download
-      - arguments:
-          artifacts:
-          - from: '{{tasks.inca-download.outputs.artifacts.inca-file}}'
-            name: inca-file
-          parameters:
-          - name: param
-            value: '{{inputs.parameters.args}}'
-        depends: inca-download
-        name: inca-write
-        template: inca-write
-    inputs:
-      parameters:
-      - name: args
-    name: pipeline
-  - inputs:
-      parameters:
-      - name: param
-    name: inca-download
-    outputs:
-      artifacts:
-      - archive:
-          none: {}
-        name: inca-file
-        path: /tmp/INCA.nc
-    script:
-      command:
-      - python
-      image: ghcr.io/oscipal/image_zarr:latest
-      source: |-
-        import os
-        import sys
-        sys.path.append(os.getcwd())
-        import json
-        try: param = json.loads(r'''{{inputs.parameters.param}}''')
-        except: param = r'''{{inputs.parameters.param}}'''
+  schedule: 0 6 * * *
+  workflowSpec:
+    entrypoint: workflow
+    securityContext:
+      runAsGroup: 71473
+      runAsUser: 74268
+    templates:
+    - dag:
+        tasks:
+        - arguments:
+            parameters:
+            - name: param
+              value: '{{inputs.parameters.args}}'
+          name: inca-download
+          template: inca-download
+        - arguments:
+            artifacts:
+            - from: '{{tasks.inca-download.outputs.artifacts.inca-file}}'
+              name: inca-file
+            parameters:
+            - name: param
+              value: '{{inputs.parameters.args}}'
+          depends: inca-download
+          name: inca-write
+          template: inca-write
+      inputs:
+        parameters:
+        - name: args
+      name: pipeline
+    - inputs:
+        parameters:
+        - name: param
+      name: inca-download
+      outputs:
+        artifacts:
+        - archive:
+            none: {}
+          name: inca-file
+          path: /tmp/INCA.nc
+      script:
+        command:
+        - python
+        image: ghcr.io/oscipal/image_zarr:latest
+        source: |-
+          import os
+          import sys
+          sys.path.append(os.getcwd())
+          import json
+          try: param = json.loads(r'''{{inputs.parameters.param}}''')
+          except: param = r'''{{inputs.parameters.param}}'''
 
-        from urllib.request import urlretrieve
-        import datetime
-        ym = (datetime.date.today() - datetime.timedelta(days=8)).strftime('%Y%m')
-        print(ym)
-        url = f'https://public.hub.geosphere.at/datahub/resources/inca-v1-1h-1km/filelisting/{param}/INCAL_HOURLY_{param}_{ym}.nc'
-        urlretrieve(url, f'/tmp/INCA.nc')
-  - inputs:
-      artifacts:
-      - name: inca-file
-        path: /tmp/INCA.nc
-      parameters:
-      - name: param
-      - default: /eodc/private/openeo_platform/zarr_nacho/INCA_test.zarr
-        name: store_path
-    name: inca-write
-    script:
-      command:
-      - python
-      image: ghcr.io/oscipal/image_zarr:latest
-      source: |-
-        import os
-        import sys
-        sys.path.append(os.getcwd())
-        import json
-        try: param = json.loads(r'''{{inputs.parameters.param}}''')
-        except: param = r'''{{inputs.parameters.param}}'''
-        try: store_path = json.loads(r'''{{inputs.parameters.store_path}}''')
-        except: store_path = r'''{{inputs.parameters.store_path}}'''
+          from urllib.request import urlretrieve
+          import datetime
+          ym = (datetime.date.today() - datetime.timedelta(days=1)).strftime('%Y%m')
+          print(ym)
+          url = f'https://public.hub.geosphere.at/datahub/resources/inca-v1-1h-1km/filelisting/{param}/INCAL_HOURLY_{param}_{ym}.nc'
+          urlretrieve(url, f'/tmp/INCA.nc')
+    - inputs:
+        artifacts:
+        - name: inca-file
+          path: /tmp/INCA.nc
+        parameters:
+        - name: param
+        - default: /eodc/products/eodc/geosphere_inca/INCA.zarr
+          name: store_path
+      name: inca-write
+      script:
+        command:
+        - python
+        image: ghcr.io/oscipal/image_zarr:latest
+        source: |-
+          import os
+          import sys
+          sys.path.append(os.getcwd())
+          import json
+          try: param = json.loads(r'''{{inputs.parameters.param}}''')
+          except: param = r'''{{inputs.parameters.param}}'''
+          try: store_path = json.loads(r'''{{inputs.parameters.store_path}}''')
+          except: store_path = r'''{{inputs.parameters.store_path}}'''
 
-        import xarray as xr
-        import numpy as np
-        import zarr
-        import pandas as pd
-        artifact_path = f'/tmp/INCA.nc'
+          import xarray as xr
+          import numpy as np
+          import zarr
+          import pandas as pd
+          artifact_path = f'/tmp/INCA.nc'
 
-        def get_idx(array1, array2):
-            min_idx = np.where(array1 == array2[0])[0][0]
-            max_idx = np.where(array1 == array2[-1])[0][0] + 1
-            return (min_idx, max_idx)
-        store = zarr.storage.LocalStore(store_path)
-        group = zarr.group(store=store)
-        dtype = group[param].dtype
-        fill_value = group[param].attrs.get('_FillValue')
-        freq = group.attrs.get('freq')
-        x_extent = group['x'][:]
-        y_extent = group['y'][:]
-        origin = xr.open_zarr(store_path).time[0].values
-        data = xr.open_dataset(artifact_path, mask_and_scale=False).load()
-        x_min, x_max = get_idx(x_extent, data['x'].values)
-        y_min, y_max = get_idx(y_extent, data['y'].values)
-        time_min, time_max = (data.time.values[0].astype('datetime64[h]'), data.time.values[-1].astype('datetime64[h]') + 1)
-        time_delta_min, time_delta_max = ((time_min - origin).astype('int64'), (time_max - origin).astype('int64'))
-        full_range = pd.date_range(time_min, time_max, freq=freq).values.astype('datetime64[ns]')
-        for value in data.time.values:
-            if value in set(full_range):
-                continue
-            else:
-                empty_array = np.full((full_range.shape[0], data['x'].values.shape[0], data['y'].values.shape[0]), fill_value=fill_value, dtype=dtype)
-                template = xr.Dataset({f'{param}': (('time', 'x', 'y'), empty_array)}, coords={'time': full_range, 'x': data['x'].values, 'y': data['y'].values})
-                data = data.combine_first(template)
-                break
-        group[param][time_delta_min:time_delta_max, y_min:y_max, x_min:x_max] = data[param].values
-      volumeMounts:
-      - mountPath: /eodc
-        name: eodc-mount
-  - name: workflow
-    steps:
-    - - name: extend-time-dimension
-        template: extend-time-dimension
-    - - arguments:
-          parameters:
-          - name: args
-            value: '{{item}}'
-        name: parallel-pipelines
-        template: pipeline
-        withParam: '["RR", "T2M", "TD2M", "P0", "UU", "VV", "RH2M", "GL"]'
-  - inputs:
-      parameters:
-      - default: /eodc/private/openeo_platform/zarr_nacho/INCA_test.zarr
-        name: store_path
-    name: extend-time-dimension
-    script:
-      command:
-      - python
-      image: ghcr.io/oscipal/image_zarr:latest
-      source: |-
-        import os
-        import sys
-        sys.path.append(os.getcwd())
-        import json
-        try: store_path = json.loads(r'''{{inputs.parameters.store_path}}''')
-        except: store_path = r'''{{inputs.parameters.store_path}}'''
+          def get_idx(array1, array2):
+              min_idx = np.where(array1 == array2[0])[0][0]
+              max_idx = np.where(array1 == array2[-1])[0][0] + 1
+              return (min_idx, max_idx)
+          store = zarr.storage.LocalStore(store_path)
+          group = zarr.group(store=store)
+          dtype = group[param].dtype
+          fill_value = group[param].attrs.get('_FillValue')
+          freq = group.attrs.get('freq')
+          x_extent = group['x'][:]
+          y_extent = group['y'][:]
+          origin = xr.open_zarr(store_path).time[0].values
+          data = xr.open_dataset(artifact_path, mask_and_scale=False).load()
+          x_min, x_max = get_idx(x_extent, data['x'].values)
+          y_min, y_max = get_idx(y_extent, data['y'].values)
+          time_min, time_max = (data.time.values[0].astype('datetime64[h]'), data.time.values[-1].astype('datetime64[h]') + 1)
+          time_delta_min, time_delta_max = ((time_min - origin).astype('int64'), (time_max - origin).astype('int64'))
+          full_range = pd.date_range(time_min, time_max, freq=freq).values.astype('datetime64[ns]')
+          for value in data.time.values:
+              if value in set(full_range):
+                  continue
+              else:
+                  empty_array = np.full((full_range.shape[0], data['x'].values.shape[0], data['y'].values.shape[0]), fill_value=fill_value, dtype=dtype)
+                  template = xr.Dataset({f'{param}': (('time', 'x', 'y'), empty_array)}, coords={'time': full_range, 'x': data['x'].values, 'y': data['y'].values})
+                  data = data.combine_first(template)
+                  break
+          group[param][time_delta_min:time_delta_max, y_min:y_max, x_min:x_max] = data[param].values
+        volumeMounts:
+        - mountPath: /eodc
+          name: eodc-mount
+    - name: workflow
+      steps:
+      - - name: extend-time-dimension
+          template: extend-time-dimension
+      - - arguments:
+            parameters:
+            - name: args
+              value: '{{item}}'
+          name: parallel-pipelines
+          template: pipeline
+          withParam: '["RR", "T2M", "TD2M", "P0", "UU", "VV", "RH2M", "GL"]'
+    - inputs:
+        parameters:
+        - default: /eodc/products/eodc/geosphere_inca/INCA.zarr
+          name: store_path
+      name: extend-time-dimension
+      script:
+        command:
+        - python
+        image: ghcr.io/oscipal/image_zarr:latest
+        source: |-
+          import os
+          import sys
+          sys.path.append(os.getcwd())
+          import json
+          try: store_path = json.loads(r'''{{inputs.parameters.store_path}}''')
+          except: store_path = r'''{{inputs.parameters.store_path}}'''
 
-        import datetime
-        import numpy as np
-        import zarr
-        now = datetime.datetime.now()
-        now_np = np.datetime64(now).astype('datetime64[h]')
-        origin = np.datetime64('2011-03-15T00:00:00').astype('datetime64[h]')
-        new_shape = int((now_np - origin).astype(int))
-        new_extent = np.arange(0, new_shape, 1)
-        store = zarr.storage.LocalStore(store_path)
-        group = zarr.group(store=store)
-        array_names = set(group.array_keys())
-        coords = {'time', 'x', 'y'}
-        data_arrays = array_names - coords
-        group['time'].resize(new_shape)
-        for array in data_arrays:
-            group_shape = group[array].shape
-            group[array].resize((new_shape, group_shape[1], group_shape[2]))
-        zarr.consolidate_metadata(store)
-        store = zarr.storage.LocalStore(store_path)
-        group = zarr.group(store=store)
-        group['time'][:] = new_extent
-      volumeMounts:
-      - mountPath: /eodc
-        name: eodc-mount
-  volumes:
-  - name: eodc-mount
-    persistentVolumeClaim:
-      claimName: eodc-nfs-claim
+          import datetime
+          import numpy as np
+          import zarr
+          now = datetime.datetime.now()
+          now_np = np.datetime64(now).astype('datetime64[h]')
+          origin = np.datetime64('2011-03-15T00:00:00').astype('datetime64[h]')
+          new_shape = int((now_np - origin).astype(int))
+          new_extent = np.arange(0, new_shape, 1)
+          store = zarr.storage.LocalStore(store_path)
+          group = zarr.group(store=store)
+          array_names = set(group.array_keys())
+          coords = {'time', 'x', 'y'}
+          data_arrays = array_names - coords
+          group['time'].resize(new_shape)
+          for array in data_arrays:
+              group_shape = group[array].shape
+              group[array].resize((new_shape, group_shape[1], group_shape[2]))
+          zarr.consolidate_metadata(store)
+          store = zarr.storage.LocalStore(store_path)
+          group = zarr.group(store=store)
+          group['time'][:] = new_extent
+        volumeMounts:
+        - mountPath: /eodc
+          name: eodc-mount
+    volumes:
+    - name: eodc-mount
+      persistentVolumeClaim:
+        claimName: eodc-nfs-claim
