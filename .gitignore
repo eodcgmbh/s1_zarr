@@ -13,3 +13,4 @@ testing.ipynb
 upload_2_S3.ipynb
 spartacus_stac.ipynb
 build_zarr_old.ipynb
+INCA_workflow.yaml
