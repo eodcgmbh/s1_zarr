@@ -10,3 +10,6 @@ stac_errors.ipynb
 stac_errors.py
 testing.ipynb
 *.venv
+upload_2_S3.ipynb
+spartacus_stac.ipynb
+build_zarr_old.ipynb
